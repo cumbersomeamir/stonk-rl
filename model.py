@@ -10,7 +10,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 # -------------------------------
 def fetch_stock_data(ticker: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
     """
-    Fetches historical stock data from Yahoo Finance.
+    Fetches historical stock data from Yahoo Finance and flattens the columns if necessary.
     
     Args:
         ticker (str): Stock ticker symbol (e.g., "AAPL").
@@ -18,11 +18,17 @@ def fetch_stock_data(ticker: str, start_date: datetime.date, end_date: datetime.
         end_date (datetime.date): End date for historical data.
     
     Returns:
-        pd.DataFrame: DataFrame with OHLCV data.
+        pd.DataFrame: DataFrame with OHLCV data and flattened columns.
     """
     data = yf.download(ticker, start=start_date, end=end_date)
     if data.empty:
         raise ValueError("No data fetched. Check the ticker or the date range.")
+    
+    # Flatten MultiIndex columns if they exist
+    if isinstance(data.columns, pd.MultiIndex):
+        # Drop the second level (e.g., the ticker name) so that columns become one-dimensional.
+        data.columns = data.columns.droplevel(1)
+    
     return data
 
 # -------------------------------
@@ -38,11 +44,14 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Updated DataFrame including technical indicators.
     """
+    # Ensure that the 'Close' column is a 1-D Series
+    close_series = df['Close'].squeeze()
+    
     # Simple Moving Average over 10 days
-    df['SMA_10'] = ta.trend.sma_indicator(df['Close'], window=10)
+    df['SMA_10'] = ta.trend.sma_indicator(close=close_series, window=10)
     
     # Relative Strength Index (RSI) over 14 days
-    df['RSI'] = ta.momentum.rsi(df['Close'], window=14)
+    df['RSI'] = ta.momentum.rsi(close=close_series, window=14)
     
     # You can add more indicators here (MACD, Bollinger Bands, etc.)
     return df
@@ -92,7 +101,7 @@ def main():
     # --- Configuration ---
     ticker = "AAPL"  # Example: Apple Inc.
     company_name = "Apple"
-    news_api_key = "pub_68604a926cb6537c76dce6d0616bc89b7275b"  # <-- Replace with your NewsAPI key
+    news_api_key = "8ff74aefdb9c4516be523ca21d39b5e2"  # <-- Replace with your NewsAPI key
     
     # Define date range for historical stock data (for example, last 30 days)
     today = datetime.date.today()
@@ -113,18 +122,19 @@ def main():
         return
     
     # --- Step 2: Compute technical indicators ---
-    stock_df = add_technical_indicators(stock_df)
-    print("Stock data with technical indicators:")
-    print(stock_df.tail(), "\n")
+    try:
+        stock_df = add_technical_indicators(stock_df)
+        print("Stock data with technical indicators:")
+        print(stock_df.tail(), "\n")
+    except Exception as e:
+        print(f"Error computing technical indicators: {e}")
+        return
     
     # --- Step 3: Fetch news sentiment ---
     sentiment_score = fetch_news_sentiment(company_name, news_from_date, news_to_date, news_api_key)
     print(f"Average News Sentiment for {company_name} on {news_from_date}: {sentiment_score}\n")
     
     # --- Step 4: Combine data into a state vector ---
-    # Here you would typically merge technical indicators, sentiment, and other data
-    # into one structured state for your RL algorithm.
-    #
     # For demonstration, we will create a simple state dictionary:
     latest_data = stock_df.iloc[-1]  # use the most recent data row
     state = {
